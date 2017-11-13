@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 type Person struct {
@@ -31,6 +30,13 @@ type AccessToken struct {
 }
 
 type ORCIDResponse struct {
+	Result []struct {
+		OrcidIdentifier struct {
+			URI  string `json:"uri"`
+			Path string `json:"path"`
+			Host string `json:"host"`
+		} `json:"orcid-identifier"`
+	} `json:"result"`
 	NumFound int `json:"num-found"`
 }
 
@@ -111,11 +117,18 @@ func processFile(filename, token string) {
 			log.Fatalln(err)
 		}
 
+		knownOrcids := map[string]bool{}
+		reponseOrcids := map[string]bool{}
+
 		for _, identifier := range person.Identifier {
 
-			if identifier.Scheme == "scopus" {
+			if identifier.Scheme == "orcid" {
 
-				request, err := http.NewRequest("GET", "https://pub.orcid.org/v2.0/search/?q=eid-self:"+identifier.Value, nil)
+				knownOrcids[identifier.Value] = true
+
+			} else if identifier.Scheme == "scopus" {
+
+				request, err := http.NewRequest("GET", "https://pub.orcid.org/v2.0/search/?q=external-id-reference:"+identifier.Value, nil)
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -145,13 +158,24 @@ func processFile(filename, token string) {
 					log.Fatalln(err)
 				}
 
-				time.Sleep(1 * time.Millisecond)
-
-				if response.NumFound > 0 {
-					fmt.Printf("This person:\n %v\nhas their Scopus ID in their ORCID profile.", person)
-					fmt.Printf("%s\n", bodyBytes)
+				for _, result := range response.Result {
+					if result.OrcidIdentifier.Host == "orcid.org" {
+						reponseOrcids[result.OrcidIdentifier.Path] = true
+					}
 				}
 			}
+		}
+
+		for knownOrcid := range knownOrcids {
+			delete(reponseOrcids, knownOrcid)
+		}
+
+		if len(reponseOrcids) > 0 {
+			fmt.Println(person.GivenName, person.FamilyName, person.ID)
+			for orcid := range reponseOrcids {
+				fmt.Println(orcid)
+			}
+			fmt.Println()
 		}
 	}
 }
